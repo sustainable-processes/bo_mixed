@@ -4,6 +4,7 @@
 Created on Thu Jun 29 00:04:35 2023
 
 @author: zhang
+@author: kcmf2
 """
 
 import matplotlib.pyplot as plt
@@ -154,29 +155,3 @@ def test_benchmark():
 
 if __name__ == "__main__":
     test_benchmark()
-
-# test = Emulator(1.4, 6, "Acetic_chloride", "THF")
-# # test = Emulator(1.2,4.45,"Acetic_chloride","EtOAc")
-# # test = Emulator(1.0,2.27,"Acetic_chloride","EtOAc")
-# c0, v, phi, k0 = test.setParameters()
-# tau, cA, cB, cC, cD = test.calculate()
-# yield_pred = round(100 * (cC[-1]) / 0.3, 2)
-# print("yield = ", yield_pred)
-# test.plot()
-
-
-# Load data from excel
-# data = pd.read_excel('/Users/zhang/Desktop/Reaction opt/#DATA/20230630-TrainingSet-4vars-MaxPro.xlsx', sheet_name='Sheet1')
-
-# pred = []
-# for i in range(2,29):
-#     test2 = data.iloc[i-2,0:4]
-#     test3 = Emulator(test2[0],test2[1],test2[2],test2[3])
-#     c0,v,phi,k0 = test3.setParameters()
-#     tau,cA,cB,cC,cD = test3.calculate()
-#     yield_pred = round(100*(cC[-1])/0.3,2)
-#     # test3.plot()
-#     print('\nentry =',i)
-#     print("yield = ", yield_pred)
-
-#     pred.append(yield_pred)
