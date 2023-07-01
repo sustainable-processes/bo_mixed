@@ -21,7 +21,8 @@ class MixedBenchmark(Experiment):
         domain = self.setup_domain()
         super().__init__(domain)
 
-    def setup_domain(self):
+    @staticmethod
+    def setup_domain():
         domain = Domain()
 
         # Decision variables
@@ -47,14 +48,14 @@ class MixedBenchmark(Experiment):
             name="sty",
             description="Space Time Yield",
             bounds=[0, 100],
-            objective=True,
+            is_objective=True,
             maximize=True,
         )
         domain += ContinuousVariable(
             name="e_factor",
             description="E Factor",
-            bounds=[0, 100],
-            objective=True,
+            bounds=[0, 10],
+            is_objective=True,
             maximize=False,
         )
 

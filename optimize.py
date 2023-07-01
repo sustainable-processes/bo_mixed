@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -12,37 +12,37 @@ from botorch.acquisition.multi_objective.monte_carlo import (
     qNoisyExpectedHypervolumeImprovement as qNEHVI,
 )
 from botorch.fit import fit_gpytorch_model
-from botorch.models import FixedNoiseGP, MultiTaskGP, SingleTaskGP
+from botorch.models import SingleTaskGP
+from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import FilterFeatures
 from botorch.optim import optimize_acqf
+from botorch.sampling.base import MCSampler
 from botorch.sampling.normal import SobolQMCNormalSampler
-from botorch.utils.multi_objective.box_decompositions.non_dominated import (
-    FastNondominatedPartitioning,
-)
 from gpytorch.mlls import SumMarginalLogLikelihood
 from summit import *
 
 dtype = torch.double
 
 
-class CategoricalAcqusitionWrapper(MCAcquisitionFunction()):
+class CategoricalqNEHVI(qNEHVI):
     def __init__(
         self,
-        acq: MCAcquisitionFunction,
+        model: Model,
+        ref_point: Union[List[float], torch.Tensor],
+        X_baseline: torch.Tensor,
         domain: Domain,
-        model,
-        best_f,
-        objective=None,
-        maximize: bool = True,
+        sampler: Optional[MCSampler] = None,
         **kwargs,
     ) -> None:
-        self.acq = acq
+        super().__init__(model, ref_point, X_baseline, sampler, **kwargs)
         self._domain = domain
+        self.skip = True if domain.num_categorical_variables() == 0 else False
 
     def forward(self, X):
-        X = self.round_to_one_hot(X, self._domain)
-        return self.acq(X)
+        if not self.skip:
+            X = self.round_to_one_hot(X, self._domain)
+        return super().forward(X)
 
     @staticmethod
     def round_to_one_hot(X, domain: Domain):
@@ -109,7 +109,6 @@ class MOBO(Strategy):
         self,
         domain: Domain,
         transform: Transform = None,
-        acquisition_function: Literal["qEHVI", "qNEHVI"] = "qEHVI",
         dynamic_reference_point: bool = True,
         input_groups: Optional[Dict[str, List[str]]] = None,
         **kwargs,
@@ -120,7 +119,6 @@ class MOBO(Strategy):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Acqusition function and reference point
-        self.acquisition_function = acquisition_function
         self.static_reference_point = {}
         for v in self.domain.output_variables:
             self.static_reference_point[v.name] = (
@@ -160,6 +158,7 @@ class MOBO(Strategy):
             data,
             min_max_scale_inputs=True,
             standardize_outputs=True,
+            categorical_method="one-hot",
         )
 
         # Make it always a maximization problem
@@ -203,6 +202,7 @@ class MOBO(Strategy):
             result,
             min_max_scale_inputs=True,
             standardized_outputs=True,
+            categorical_method="one-hot",
         )
 
         # Add metadata
@@ -242,39 +242,18 @@ class MOBO(Strategy):
         # Sampler
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([mc_samples]))
 
-        # Setup acqusition function
-        if self.acquisition_function == "qEHVI":
-            with torch.no_grad():
-                pred = model.posterior(X).mean
-            partitioning = FastNondominatedPartitioning(
-                ref_point=reference_point,
-                Y=pred,
-            )
-            acq = qEHVI(
-                model=model,
-                ref_point=reference_point,
-                sampler=sampler,
-                partitioning=partitioning,
-            )
-        elif self.acquisition_function == "qNEHVI":
-            acq = qNEHVI(
-                model=model,
-                ref_point=reference_point,
-                sampler=sampler,
-                X_baseline=X,
-                prune_baseline=True,
-            )
-        else:
-            raise ValueError(
-                f"{self.acquisition_function} not a valid acquisition function"
-            )
-
-        # Categorial wrapper
-        acq = CategoricalAcqusitionWrapper(acq, self.domain)
+        acq = CategoricalqNEHVI(
+            model=model,
+            ref_point=reference_point,
+            domain=self.domain,
+            sampler=sampler,
+            X_baseline=X,
+            prune_baseline=True,
+        )
 
         # Optimize acquisition function
         results, _ = optimize_acqf(
-            acq_function=self.acq,
+            acq_function=acq,
             bounds=self._get_input_bounds(),
             num_restarts=num_restarts,
             q=num_experiments,
@@ -294,14 +273,12 @@ class MOBO(Strategy):
                 # v_bounds = (v_bounds - mean) / std
                 v_bounds = (v_bounds - var_min) / (var_max - var_min)
                 bounds.append(v_bounds)
-            elif (
-                isinstance(v, CategoricalVariable)
-                and self.categorical_method == "one-hot"
-            ):
-                raise NotImplementedError("one-hot encoding not implemented")
-            elif isinstance(v, CategoricalVariable) and self.categorical_method is None:
-                raise NotImplementedError("categorical encoding not implemented")
-
+            elif isinstance(v, CategoricalVariable) and v.ds is None:
+                bounds += [[0, 1] for _ in v.levels]
+            elif isinstance(v, CategoricalVariable) and v.ds is not None:
+                raise NotImplementedError(
+                    "Categorical variables with descriptors not supported"
+                )
         return torch.tensor(np.array(bounds), dtype=dtype, device=self.device).T
 
     def _get_transformed_reference_point(self):
@@ -338,7 +315,6 @@ class MOBO(Strategy):
     def to_dict(self, **strategy_params):
         strategy_params.update(
             {
-                "acquisition_function": self.acquisition_function,
                 "dynamic_reference_point": self.dynamic_reference_point,
                 "input_groups": self.input_groups,
             }
