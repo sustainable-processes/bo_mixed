@@ -15,6 +15,8 @@ from summit import *
 
 
 class MixedBenchmark(Experiment):
+    """Kinetic model benchmark with mixed categorical and continuous variables"""
+
     def __init__(self):
         domain = self.setup_domain()
         super().__init__(domain)
@@ -42,12 +44,20 @@ class MixedBenchmark(Experiment):
 
         # Objectives
         domain += ContinuousVariable(
-            name="yld",
-            description="yield",
+            name="sty",
+            description="Space Time Yield",
             bounds=[0, 100],
-            is_objective=True,
+            objective=True,
             maximize=True,
         )
+        domain += ContinuousVariable(
+            name="e_factor",
+            description="E Factor",
+            bounds=[0, 100],
+            objective=True,
+            maximize=False,
+        )
+
         return domain
 
     def _run(self, conditions: DataSet, plot: bool = False, **kwargs) -> DataSet:
@@ -60,7 +70,9 @@ class MixedBenchmark(Experiment):
         if plot:
             self.plot(tau, cA, cB, cC, cD)
         yield_pred = round(100 * (cC[-1]) / 0.3, 2)
-        conditions["yld", "DATA"] = yield_pred
+        sty, e_factor = self.calculate_obj(yield_pred, flowrate, equiv, elec)
+        conditions["sty", "DATA"] = sty
+        conditions["e_factor", "DATA"] = e_factor
         return conditions, {}
 
     @staticmethod
@@ -141,6 +153,34 @@ class MixedBenchmark(Experiment):
         plt.ylabel("conc/(mol/L)")
         plt.legend()
         plt.show()
+
+    @staticmethod
+    def calculate_obj(yield_pred, flowrate, equiv, elec):
+        # calculate STY and E_factor
+        Mw_product = 149.19
+        Mw_anhyride = 102.09
+        Mw_chloride = 78.5
+        Mw_NaOH = 40
+
+        res_time = 0.5 / (flowrate * 2 / 60)
+        STY = 0.3 * Mw_product * (yield_pred / 100) / (0.5 * res_time)
+
+        if elec == "Acetic_anhydride":
+            waste = (
+                107.15
+                + equiv * (Mw_anhyride + Mw_NaOH)
+                - Mw_product * (yield_pred / 100)
+            )
+        else:
+            waste = (
+                107.15
+                + equiv * (Mw_chloride + Mw_NaOH)
+                - Mw_product * (yield_pred / 100)
+            )
+
+        E_factor = waste / (Mw_product * (yield_pred / 100))
+
+        return STY, E_factor
 
 
 def test_benchmark():
