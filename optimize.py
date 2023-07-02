@@ -299,10 +299,5 @@ class MOBO(Strategy):
         )
 
     def to_dict(self, **strategy_params):
-        strategy_params.update(
-            {
-                "dynamic_reference_point": self.dynamic_reference_point,
-                "input_groups": self.input_groups,
-            }
-        )
+        strategy_params.update({"input_groups": self.input_groups})
         return super().to_dict(**strategy_params)

@@ -1,2 +1,3 @@
 summit
 typer
+wandb
