@@ -1,15 +1,20 @@
+import json
 import logging
 import os
+import time
 import uuid
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pkg_resources
 from summit import *
 from summit.utils.multiobjective import hypervolume, pareto_efficient
 from tqdm import trange
+from wandb.apis.public import Run
 
 import wandb
+from wandb import Artifact
 
 
 class WandbRunner(Runner):
@@ -275,3 +280,155 @@ class WandbRunner(Runner):
             )
         )
         return d
+
+
+def get_ds_from_json(filepath: str) -> DataSet:
+    path = Path(filepath)
+    with open(path, "r") as f:
+        data = json.load(f)
+    data = data["experiment"]["data"]
+    return DataSet.from_dict(data)
+
+
+def download_with_retries(artifact: Artifact, n_retries: int = 5):
+    logger = logging.getLogger(__name__)
+    for i in range(n_retries):
+        try:
+            return artifact.download()
+        except ConnectionError as e:
+            logger.error(e)
+            logger.info(f"Retrying download of {artifact.name}")
+            time.sleep(2**i)
+
+
+def download_runs_wandb(
+    api: wandb.Api,
+    wandb_entity: str = "ceb-sre",
+    wandb_project: str = "distill",
+    include_tags: Optional[List[str]] = None,
+    filter_tags: Optional[List[str]] = None,
+    only_finished_runs: bool = True,
+    extra_filters: Optional[Dict[str, Any]] = None,
+) -> List[Run]:
+    """Download runs from wandb
+
+
+    Parameters
+    ----------
+    api : wandb.Api
+        The wandb API object.
+    wandb_entity : str, optional
+        The wandb entity to search, by default "ceb-sre"
+    wandb_project : str, optional
+        The wandb project to search, by default "multitask"
+    include_tags : Optional[List[str]], optional
+        A list of tags that the run must have, by default None
+    filter_tags : Optional[List[str]], optional
+        A list of tags that the run must not have, by default None
+    extra_filters : Optional[Dict[str, Any]], optional
+        A dictionary of extra filters to apply to the wandb search, by default None
+
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Downloading runs from wandb")
+
+    # Filters
+    filters = {}
+    tag_query = []
+    if include_tags is not None and len(include_tags) > 0:
+        for include_tag in include_tags:
+            tag_query.append({"tags": {"$in": [include_tag]}})
+        # filters["tags"] = {"$infilt": include_tags}
+    if filter_tags is not None and len(filter_tags) > 0:
+        tag_query += [{"tags": {"$nin": filter_tags}}]
+    if len(tag_query) > 0:
+        filters["$and"] = tag_query
+    if only_finished_runs:
+        filters["state"] = "finished"
+    if extra_filters is not None:
+        filters.update(extra_filters)
+
+    # Get runs
+    runs = api.runs(
+        f"{wandb_entity}/{wandb_project}",
+        filters=filters,
+    )
+    return runs
+
+
+def get_wandb_run_dfs(
+    api,
+    wandb_entity: str,
+    wandb_project: str,
+    include_tags: Optional[List[str]] = None,
+    filter_tags: Optional[List[str]] = None,
+    only_finished_runs: bool = True,
+    extra_filters: Optional[Dict] = None,
+    num_iterations: Optional[int] = None,
+    commit: Optional[str] = None,
+    limit: Optional[int] = 20,
+) -> List[DataSet]:
+    """Get data from wandb"""
+    runs = download_runs_wandb(
+        api,
+        wandb_entity,
+        wandb_project,
+        only_finished_runs=only_finished_runs,
+        include_tags=include_tags,
+        filter_tags=filter_tags,
+        extra_filters=extra_filters,
+    )
+
+    if commit is not None:
+        runs = [run for run in runs if run.commit == commit]
+
+    dfs = []
+    for i, run in enumerate(runs):
+        if limit is not None and i >= limit:
+            continue
+        artifacts = run.logged_artifacts()
+        path = None
+        for artifact in artifacts:
+            if artifact.type == "optimization_result":
+                path = download_with_retries(artifact)
+                break
+        if path is not None:
+            path = list(Path(path).glob("repeat_*.json"))[0]
+            ds = get_ds_from_json(path)
+            # ds["yld_best", "DATA"] = ds["yld"].astype(float).cummax()
+            dfs.append(ds)
+
+    # if columns is None:
+    #     columns = ["yld_best"]
+    # dfs = [run.history(x_axis="iteration", keys=columns) for run in tqdm(runs)]
+    if num_iterations is not None:
+        dfs = [
+            df.iloc[:num_iterations, :] for df in dfs if df.shape[0] >= num_iterations
+        ]
+    if len(dfs) == 0:
+        raise ValueError(f"No runs found")
+    return dfs
+
+
+def calculate_hypervolume(data, domain: Domain):
+    hypervolumes = []
+    output_names = [v.name for v in domain.output_variables]
+    y = data.copy()
+    reference_point = [
+        -y[v.name].min() if v.maximize else y[v.name].max()
+        for v in domain.output_variables
+    ]
+    # Hypervolume assumes a minimization problem
+    for v in domain.output_variables:
+        if v.maximize:
+            y[v.name] *= -1
+
+    for i in range(data.shape[0]):
+        yi = y.iloc[:i]
+
+        # Get pareto front
+        pareto, indices = pareto_efficient(yi[output_names].to_numpy(), maximize=False)
+        # Calculate hypervolume
+        hv = hypervolume(pareto, reference_point)
+        hypervolumes.append(hv)
+    return hypervolumes
