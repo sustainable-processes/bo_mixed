@@ -17,8 +17,9 @@ from summit import *
 class MixedBenchmark(Experiment):
     """Kinetic model benchmark with mixed categorical and continuous variables"""
 
-    def __init__(self):
+    def __init__(self, noise_level: float = 0):
         domain = self.setup_domain()
+        # self.noise_level = noise_level
         super().__init__(domain)
 
     @staticmethod
