@@ -18,12 +18,17 @@ class MixedBenchmark(Experiment):
     """Kinetic model benchmark with mixed categorical and continuous variables"""
 
     def __init__(self, noise_level: float = 0):
-        domain = self.setup_domain()
+        self.mixer_df = DataSet(
+            [[0.5, 90], [1, 90], [0.5, 120], [1, 120]],
+            index=["T_small", "T_big", "Y_small", "Y_big"],
+            columns=["size", "angle"],
+        )
+        domain = self.setup_domain(self.mixer_df)
         # self.noise_level = noise_level
         super().__init__(domain)
 
     @staticmethod
-    def setup_domain():
+    def setup_domain(mixer_df: DataSet):
         domain = Domain()
 
         # Decision variables
@@ -42,6 +47,10 @@ class MixedBenchmark(Experiment):
             name="solv",
             description="Solvent",
             levels=["THF", "EtOAc", "MeCN", "Toluene"],
+        )
+
+        domain += CategoricalVariable(
+            name="mixer", description="Mixer_geometry_descriptors", descriptors=mixer_df
         )
 
         # Objectives
@@ -63,11 +72,18 @@ class MixedBenchmark(Experiment):
         return domain
 
     def _run(self, conditions: DataSet, plot: bool = False, **kwargs) -> DataSet:
+        # Get selected conditions
         equiv = float(conditions["equiv"])
         flowrate = float(conditions["flowrate"])
         elec = str(conditions["elec"].values[0])
         solv = str(conditions["solv"].values[0])
-        c0, v, phi, k0 = self.get_parameters(equiv, flowrate, elec, solv)
+        mixer = str(conditions["mixer"].values[0])
+        mixer_diameter = float(self.mixer_df.loc[mixer, "size"].values[0])
+        mixer_angle = float(self.mixer_df.loc[mixer, "angle"].values[0])
+
+        c0, v, phi, k0 = self.get_parameters(
+            equiv, flowrate, elec, solv, mixer_diameter, mixer_angle
+        )
         tau, cA, cB, cC, cD = self.calculate(c0, k0, phi, v)
         if plot:
             self.plot(tau, cA, cB, cC, cD)
@@ -78,7 +94,7 @@ class MixedBenchmark(Experiment):
         return conditions, {}
 
     @staticmethod
-    def get_parameters(equiv, flowrate, elec, solv):
+    def get_parameters(equiv, flowrate, elec, solv, mixer_dia, mixer_angle):
         v = 2e-3 * flowrate / 60
         c0 = np.array([equiv * 0.30, 0.30, 0, 0])
 
@@ -89,20 +105,31 @@ class MixedBenchmark(Experiment):
 
         if solv == "Toluene":
             phi = 0.35
-            k0[0] = 40
+            k0[0] = 25
         elif solv == "EtOAc":
             phi = 0.35
-            k0[0] = 100
+            k0[0] = 60
         elif solv == "MeCN":
-            phi = 0.09 * flowrate + 0.02
-            k0[0] = k0[0] * 1
-        elif solv == "THF":
-            if elec == "Acetic_anhydride":
-                phi = 0.19 * flowrate - 0.11
-                k0[0] = k0[0] * 1
+            if mixer_angle > 90:
+                phi = 0.09 * flowrate - (1 / mixer_dia) * 0.05
+                k0[0] = 40
             else:
-                phi = 0.05 * flowrate + 0.06
-                k0[0] = k0[0] * 1
+                phi = 0.09 * flowrate + (1 / mixer_dia) * 0.06
+                k0[0] = 40
+        elif solv == "THF":
+            if elec == "Acetic_anhydride" and mixer_angle > 90:
+                phi = 0.19 * flowrate - (1 / mixer_dia) * 0.06
+                k0[0] = 40
+
+            elif elec == "Acetic_anhydride" and mixer_angle <= 90:
+                phi = 0.19 * flowrate + (1 / mixer_dia) * 0.05
+                k0[0] = 40
+            elif elec == "Acetyl_chloride" and mixer_angle > 90:
+                phi = 0.05 * flowrate - (1 / mixer_dia) * 0.05
+                k0[0] = 40
+            else:
+                phi = 0.05 * flowrate + (1 / mixer_dia) * 0.02
+                k0[0] = 40
         else:
             raise ValueError(f"Unknown solvent: {solv}")
 
@@ -188,7 +215,15 @@ class MixedBenchmark(Experiment):
 def test_benchmark():
     exp = MixedBenchmark()
     conditions = pd.DataFrame(
-        [{"equiv": 1.4, "flowrate": 6, "elec": "Acetic_chloride", "solv": "THF"}]
+        [
+            {
+                "equiv": 1.4,
+                "flowrate": 6,
+                "elec": "Acetyl_chloride",
+                "solv": "THF",
+                "mixer": "T_small",
+            }
+        ]
     )
     conditions = DataSet.from_df(conditions)
     results = exp.run_experiments(conditions, plot=True)
