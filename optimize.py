@@ -109,7 +109,6 @@ class MOBO(Strategy):
         self,
         domain: Domain,
         transform: Transform = None,
-        dynamic_reference_point: bool = True,
         input_groups: Optional[Dict[str, List[str]]] = None,
         **kwargs,
     ):
@@ -124,7 +123,6 @@ class MOBO(Strategy):
             self.static_reference_point[v.name] = (
                 v.bounds[1] if v.maximize else -v.bounds[0]
             )
-        self.dynamic_reference_point = dynamic_reference_point
 
         # Input grouping
         self.input_groups = input_groups
@@ -182,13 +180,15 @@ class MOBO(Strategy):
         self.model = self.fit_model(X, y)
 
         # Optimize acquisition function
+        reference_point = self._get_transformed_reference_point(output)
         results = self.optimize_acquisition_function(
             self.model,
-            X,
-            num_experiments,
+            X=X,
+            num_experiments=num_experiments,
+            reference_point=reference_point,
             num_restarts=kwargs.get("num_restarts", 100),
-            raw_samples=kwargs.get("raw_samples", 1000),
-            mc_samples=kwargs.get("mc_samples", 128),
+            raw_samples=kwargs.get("raw_samples", 2000),
+            # mc_samples=kwargs.get("mc_samples", 128),
         )
 
         # Convert result to datset
@@ -231,14 +231,12 @@ class MOBO(Strategy):
         self,
         model,
         X: torch.Tensor,
+        reference_point: torch.Tensor,
         num_experiments: int,
         num_restarts: int = 100,
         raw_samples: int = 2000,
         mc_samples: int = 128,
     ):
-        # Hypervolume reference point
-        reference_point = self._get_transformed_reference_point()
-
         # Sampler
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([mc_samples]))
 
@@ -281,25 +279,13 @@ class MOBO(Strategy):
                 )
         return torch.tensor(np.array(bounds), dtype=dtype, device=self.device).T
 
-    def _get_transformed_reference_point(self):
+    def _get_transformed_reference_point(self, output: DataSet):
         transformed_reference_point = []
-        if self.dynamic_reference_point:
-            untransformed_reference_point = {}
-            for v in self.domain.output_variables:
-                val = self.all_experiments.sort_values(v.name, ascending=v.maximize)[
-                    v.name
-                ].iloc[0]
-                untransformed_reference_point[v.name] = val
-        else:
-            untransformed_reference_point = self.static_reference_point
-
         for v in self.domain.output_variables:
-            if isinstance(v, ContinuousVariable):
-                mean = self.transform.output_means[v.name]
-                std = self.transform.output_stds[v.name]
-                transformed_reference_point.append(
-                    (untransformed_reference_point[v.name] - mean) / std
-                )
+            # Get the worst point in each output
+            # Should always be transformed to a maximization problem
+            val = output.sort_values(v.name, ascending=True)[v.name].iloc[0]
+            transformed_reference_point.append(val)
         return torch.tensor(
             np.array(transformed_reference_point), dtype=dtype, device=self.device
         )
