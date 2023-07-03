@@ -32,27 +32,32 @@ class CategoricalqNEHVI(qNEHVI):
         ref_point: Union[List[float], torch.Tensor],
         X_baseline: torch.Tensor,
         domain: Domain,
+        descriptor_tensors: Optional[Dict[str, torch.Tensor]] = None,
         sampler: Optional[MCSampler] = None,
         **kwargs,
     ) -> None:
         super().__init__(model, ref_point, X_baseline, sampler, **kwargs)
         self._domain = domain
         self.skip = True if domain.num_categorical_variables() == 0 else False
+        self.descriptor_tensors = descriptor_tensors
 
     def forward(self, X):
         if not self.skip:
-            X = self.round_to_one_hot(X, self._domain)
+            X = self.round_categorical(X, self._domain, self.descriptor_tensors)
         return super().forward(X)
 
     @staticmethod
-    def round_to_one_hot(X, domain: Domain):
+    def round_categorical(
+        X, domain: Domain, descriptor_tensors: Optional[Dict[str, torch.Tensor]] = None
+    ):
         """Round all categorical variables to a one-hot encoding"""
         num_experiments = X.shape[1]
         X = X.clone()
+
         for q in range(num_experiments):
             c = 0
             for v in domain.input_variables:
-                if isinstance(v, CategoricalVariable):
+                if isinstance(v, CategoricalVariable) and v.ds is None:
                     n_levels = len(v.levels)
                     levels_selected = X[:, q, c : c + n_levels].argmax(axis=1)
                     X[:, q, c : c + n_levels] = 0
@@ -68,6 +73,19 @@ class CategoricalqNEHVI(qNEHVI):
                             )
                         )
                     c += n_levels
+                # Choose the closest option by Euclidean distance
+                elif isinstance(v, CategoricalVariable) and v.ds is not None:
+                    # Get embeddings
+                    num_descriptors = v.ds.shape[1]
+                    embeddings = X[:, q, c : c + num_descriptors]
+                    option_embeddings = descriptor_tensors[v.name]
+                    # Calculated distances
+                    distances = torch.cdist(embeddings, option_embeddings)
+                    # Select the closest option
+                    levels_selected = distances.argmin(axis=1)
+                    # Update embeddings
+                    new_embeddings = option_embeddings[levels_selected, :]
+                    X[:, q, c : c + num_descriptors] = new_embeddings
                 else:
                     c += 1
         return X
@@ -186,6 +204,7 @@ class MOBO(Strategy):
             device=self.device,
             dtype=dtype,
         )
+
         # Fit independent GP models
         self.model = self.fit_model(X, y)
 
@@ -250,6 +269,21 @@ class MOBO(Strategy):
         # Sampler
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([mc_samples]))
 
+        # Normalize any descriptor dfs
+        descriptors_tensors = {}
+        for v in self.domain.input_variables:
+            if isinstance(v, CategoricalVariable) and v.ds is not None:
+                new_ds = v.ds.copy()
+                for descriptor in new_ds.data_columns:
+                    var_max = v.ds[descriptor].max()
+                    var_min = v.ds[descriptor].min()
+                    new_ds[descriptor, "DATA"] = (new_ds[descriptor] - var_min) / (
+                        var_max - var_min
+                    )
+                descriptors_tensors[v.name] = torch.tensor(
+                    new_ds.to_numpy(), device=self.device, dtype=dtype
+                )
+
         # Acquisition function
         acq = CategoricalqNEHVI(
             model=model,
@@ -258,6 +292,7 @@ class MOBO(Strategy):
             sampler=sampler,
             X_baseline=X,
             prune_baseline=True,
+            descriptor_tensors=descriptors_tensors,
         )
 
         # Optimize acquisition function
