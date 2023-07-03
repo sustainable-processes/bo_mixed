@@ -17,14 +17,15 @@ from summit import *
 class MixedBenchmark(Experiment):
     """Kinetic model benchmark with mixed categorical and continuous variables"""
 
-    def __init__(self, noise_level: float = 0):
+    def __init__(self, noise_level: float = 0, random_state: int = None):
         self.mixer_df = DataSet(
             [[0.5, 90], [1, 90], [0.5, 120], [1, 120]],
             index=["T_small", "T_big", "Y_small", "Y_big"],
             columns=["size", "angle"],
         )
         domain = self.setup_domain(self.mixer_df)
-        # self.noise_level = noise_level
+        self.rng = np.random.default_rng(random_state)
+        self.noise_level = noise_level
         super().__init__(domain)
 
     @staticmethod
@@ -81,6 +82,7 @@ class MixedBenchmark(Experiment):
         mixer_diameter = float(self.mixer_df.loc[mixer, "size"].values[0])
         mixer_angle = float(self.mixer_df.loc[mixer, "angle"].values[0])
 
+        # Run benchmark
         c0, v, phi, k0 = self.get_parameters(
             equiv, flowrate, elec, solv, mixer_diameter, mixer_angle
         )
@@ -88,7 +90,11 @@ class MixedBenchmark(Experiment):
         if plot:
             self.plot(tau, cA, cB, cC, cD)
         yield_pred = round(100 * (cC[-1]) / 0.3, 2)
+        if self.noise_level > 0:
+            yield_pred += self.rng.normal(0, self.noise_level)
         sty, e_factor = self.calculate_obj(yield_pred, flowrate, equiv, elec)
+
+        # Update with results
         conditions["sty", "DATA"] = sty
         conditions["e_factor", "DATA"] = e_factor
         return conditions, {}
@@ -211,9 +217,14 @@ class MixedBenchmark(Experiment):
 
         return STY, E_factor
 
+    def to_dict(self, **experiment_params):
+        d = super().to_dict(**experiment_params)
+        d["noise_level"] = self.noise_level
+        return d
+
 
 def test_benchmark():
-    exp = MixedBenchmark()
+    exp = MixedBenchmark(noise_level=5.0)
     conditions = pd.DataFrame(
         [
             {
@@ -226,7 +237,7 @@ def test_benchmark():
         ]
     )
     conditions = DataSet.from_df(conditions)
-    results = exp.run_experiments(conditions, plot=True)
+    results = exp.run_experiments(conditions, plot=False)
     print(results)
 
 

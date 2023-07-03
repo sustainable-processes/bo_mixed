@@ -14,7 +14,7 @@ def main(
     repeats: int = 1,
     max_iterations: int = 20,
     num_initial_experiments: int = 10,
-    # noise_level: float = 0.0,
+    noise_level: float = 0.0,
     save_dir: str = "results",
     show_plot: bool = False,
     wandb_tracking: bool = True,
@@ -26,7 +26,7 @@ def main(
     save_dir.mkdir(exist_ok=True)
 
     # Setup experiment
-    exp = MixedBenchmark()
+    exp = MixedBenchmark(noise_level=noise_level)
 
     # Runner class
     if wandb_tracking:
