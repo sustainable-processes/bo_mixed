@@ -143,6 +143,17 @@ class MOBO(Strategy):
             self.iterations += 1
             k = num_experiments if num_experiments > 1 else 2
             conditions = lhs.suggest_experiments(k)
+            for v in self.domain.input_variables:
+                if isinstance(v, CategoricalVariable) and v.ds is not None:
+                    indices = conditions[v.name].values
+                    descriptors = v.ds.loc[indices]
+                    descriptors.index = conditions.index
+                    conditions = conditions.join(descriptors, how="inner")
+                    var_descriptor_names = v.ds.data_columns
+                    for var in var_descriptor_names:
+                        descriptor = conditions[var].copy()
+                        conditions = conditions.drop(columns=var, level=0)
+                        conditions[var, "METADATA"] = descriptor
             return conditions
         elif prev_res is not None and self.all_experiments is None:
             self.all_experiments = prev_res
@@ -156,7 +167,7 @@ class MOBO(Strategy):
             data,
             min_max_scale_inputs=True,
             standardize_outputs=True,
-            categorical_method="one-hot",
+            categorical_method="mixed",
         )
 
         # Make it always a maximization problem
@@ -175,7 +186,6 @@ class MOBO(Strategy):
             device=self.device,
             dtype=dtype,
         )
-
         # Fit independent GP models
         self.model = self.fit_model(X, y)
 
@@ -202,7 +212,7 @@ class MOBO(Strategy):
             result,
             min_max_scale_inputs=True,
             standardized_outputs=True,
-            categorical_method="one-hot",
+            categorical_method="mixed",
         )
 
         # Add metadata
@@ -240,6 +250,7 @@ class MOBO(Strategy):
         # Sampler
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([mc_samples]))
 
+        # Acquisition function
         acq = CategoricalqNEHVI(
             model=model,
             ref_point=reference_point,
@@ -264,19 +275,14 @@ class MOBO(Strategy):
         bounds = []
         for v in self.domain.input_variables:
             if isinstance(v, ContinuousVariable):
-                var_min, var_max = v.bounds[0], v.bounds[1]
-                # mean = self.transform.input_means[v.name]
-                # std = self.transform.input_stds[v.name]
-                v_bounds = np.array(v.bounds)
-                # v_bounds = (v_bounds - mean) / std
-                v_bounds = (v_bounds - var_min) / (var_max - var_min)
-                bounds.append(v_bounds)
+                # Because of min max scaling
+                bounds += [[0, 1]]
             elif isinstance(v, CategoricalVariable) and v.ds is None:
+                # Because of one-hot encoding
                 bounds += [[0, 1] for _ in v.levels]
             elif isinstance(v, CategoricalVariable) and v.ds is not None:
-                raise NotImplementedError(
-                    "Categorical variables with descriptors not supported"
-                )
+                # Because of min-max scaling
+                bounds += [[0, 1] for _ in v.ds.columns]
         return torch.tensor(np.array(bounds), dtype=dtype, device=self.device).T
 
     def _get_transformed_reference_point(self, output: DataSet):
