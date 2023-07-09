@@ -86,6 +86,7 @@ class CategoricalqNEHVI(qNEHVI):
                     # Update embeddings
                     new_embeddings = option_embeddings[levels_selected, :]
                     X[:, q, c : c + num_descriptors] = new_embeddings
+                    c += num_descriptors
                 else:
                     c += 1
         return X
