@@ -32,4 +32,7 @@ python main.py --strategy MOBO
 
 # Use TSEMO as a strategy
 python main.py --strategy TSEMO
+
+# Pass your own initialization data and don't run LHS initialization
+python main.py --initialization-data-path data.csv --num-initial-experiments=0
 ```
