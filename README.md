@@ -24,4 +24,12 @@ This project aims to optimize a reaction with a mixed input domain and multiple 
     python main.py
     ```
 
-You can see a full list of commands by running `python main.py --help`.
+You can see a full list of commands by running `python main.py --help`. Some examples:
+
+```
+# Use TSEMO as a strategy
+python main.py --strategy MOBO
+
+# Use TSEMO as a strategy
+python main.py --strategy TSEMO
+```

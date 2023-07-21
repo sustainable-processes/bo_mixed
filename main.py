@@ -1,5 +1,6 @@
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,10 +13,16 @@ from optimize import MOBO
 from utils import WandbRunner
 
 
+class StrategyType(Enum):
+    MOBO = "MOBO"
+    TSEMO = "TSEMO"
+
+
 def main(
     repeats: int = 1,
     max_iterations: int = 20,
     num_initial_experiments: int = 10,
+    strategy: StrategyType = "MOBO",
     noise_level: float = 0.0,
     save_dir: str = "results",
     show_plot: bool = False,
@@ -49,9 +56,14 @@ def main(
         exp.reset()
 
         # Setup optimization
-        strategy = MOBO(exp.domain)
+        if strategy == StrategyType.TSEMO:
+            strategy_cls = TSEMO(exp.domain)
+        elif strategy == StrategyType.MOBO:
+            strategy_cls = MOBO(exp.domain)
+        else:
+            raise ValueError(f"Unknown strategy {strategy}")
         r = runner_cls(
-            strategy=strategy,
+            strategy=strategy_cls,
             experiment=exp,
             max_iterations=max_iterations,
             num_initial_experiments=num_initial_experiments,
