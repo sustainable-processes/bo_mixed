@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import typer
 from summit import *
 
@@ -21,12 +23,20 @@ def main(
     wandb_project: str = "bo_mixed",
     wandb_entity: str = "ceb-sre",
     wandb_artifact_name: str = "mixed_benchmark",
+    intialization_data_path: Optional[str] = None,
 ):
     save_dir = Path(save_dir)
     save_dir.mkdir(exist_ok=True)
 
     # Setup experiment
     exp = MixedBenchmark(noise_level=noise_level)
+
+    if intialization_data_path is not None:
+        df = pd.read_csv(intialization_data_path)
+        ds = DataSet.from_df(df)
+        prev_res = exp.run_experiments(ds)
+    else:
+        prev_res = None
 
     # Runner class
     if wandb_tracking:
@@ -57,7 +67,7 @@ def main(
             )
 
         # Run optimization
-        r.run(skip_wandb_initialization=True)
+        r.run(skip_wandb_initialization=True, prev_res=prev_res)
 
         # Plot results
         fig, ax = exp.pareto_plot(colorbar=True)
