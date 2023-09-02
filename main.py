@@ -96,7 +96,7 @@ def main(
         fig, ax = exp.pareto_plot(colorbar=True)
         if show_plot:
             plt.show()
-        fig.savefig(save_dir / f"happy_pareto_plot_repeat_{i}.png",dpi=300)
+        fig.savefig(save_dir / f"pareto_plot_repeat_{i}.png",dpi=300)
         if wandb_tracking:
             wandb.log({"pareto_plot": wandb.Image(fig)})
             
