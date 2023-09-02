@@ -8,7 +8,7 @@ import typer
 from summit import *
 
 import wandb
-from benchmark_1 import MixedBenchmark
+from benchmark import MixedBenchmark
 from optimize import MOBO
 from utils import WandbRunner
 
