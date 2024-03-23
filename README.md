@@ -2,6 +2,8 @@
 
 This project aims to optimize a reaction with a mixed input domain and multiple objectives.
 
+Code associated with the paper [Multi-objective Bayesian optimisation using q-noisy expected hypervolume improvement (q NEHVI) for the Schotten–Baumann reaction](https://pubs.rsc.org/en/content/articlehtml/2023/re/d3re00502j).
+
 ## Setup
 
 1. Clone the repo
