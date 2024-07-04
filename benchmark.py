@@ -19,7 +19,7 @@ class MixedBenchmark(Experiment):
 
     def __init__(self, noise_level: float = 0):
         domain = self.setup_domain()
-        # self.noise_level = noise_level
+        self.noise_level = noise_level
         super().__init__(domain)
 
     @staticmethod
@@ -169,7 +169,9 @@ class MixedBenchmark(Experiment):
         Mw_NaOH = 40
 
         res_time = 0.5 / (flowrate * 2 / 60)
-        STY = 0.3 * Mw_product * (yield_pred / 100) / (0.5 * res_time)
+        # STY = 0.3 * Mw_product * (yield_pred / 100) / (0.5 * res_time)
+        # The correct STY should be
+        STY = (yield_pred / 100) * (0.3/2) * Mw_product * (flowrate * 2) / (0.5*60)
 
         if elec == "Acetic_anhydride":
             waste = (
@@ -197,7 +199,6 @@ def test_benchmark():
     conditions = DataSet.from_df(conditions)
     results = exp.run_experiments(conditions, plot=True)
     print(results)
-
 
 if __name__ == "__main__":
     test_benchmark()
