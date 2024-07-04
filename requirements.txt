@@ -1,3 +1,3 @@
-git+https://github.com/sustainable-processes/summit.git#egg=summi
+git+https://github.com/sustainable-processes/summit.git#egg=summit
 typer
 wandb
