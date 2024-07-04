@@ -1,4 +1,4 @@
-# BO in a mixed, multiobjective domain
+# Multi-objective reaction optimisation for the Schotten-Baumann reaction (mixed variables)
 
 This project aims to optimize a reaction with a mixed input domain and multiple objectives.
 
