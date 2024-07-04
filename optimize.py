@@ -11,7 +11,7 @@ from botorch.acquisition.multi_objective.monte_carlo import (
 from botorch.acquisition.multi_objective.monte_carlo import (
     qNoisyExpectedHypervolumeImprovement as qNEHVI,
 )
-from botorch.fit import fit_gpytorch_model
+from botorch import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
@@ -41,9 +41,11 @@ class CategoricalqNEHVI(qNEHVI):
         self.skip = True if domain.num_categorical_variables() == 0 else False
         self.descriptor_tensors = descriptor_tensors
 
-    def forward(self, X):
+    def forward(self, X): # this is do the rounding for categ vars in acquisition function!!
         if not self.skip:
+            # print("before round X=", X) # test before rounding
             X = self.round_categorical(X, self._domain, self.descriptor_tensors)
+            # print("after round X=", X) # test after rounding
         return super().forward(X)
 
     @staticmethod
@@ -86,7 +88,6 @@ class CategoricalqNEHVI(qNEHVI):
                     # Update embeddings
                     new_embeddings = option_embeddings[levels_selected, :]
                     X[:, q, c : c + num_descriptors] = new_embeddings
-                    c += num_descriptors
                 else:
                     c += 1
         return X
@@ -181,6 +182,8 @@ class MOBO(Strategy):
         self.iterations += 1
         data = self.all_experiments
 
+
+
         # Get inputs (decision variables) and outputs (objectives)
         inputs, output = self.transform.transform_inputs_outputs(
             data,
@@ -188,6 +191,8 @@ class MOBO(Strategy):
             standardize_outputs=True,
             categorical_method="mixed",
         )
+
+
 
         # Make it always a maximization problem
         for v in self.domain.output_variables:
@@ -211,6 +216,10 @@ class MOBO(Strategy):
 
         # Optimize acquisition function
         reference_point = self._get_transformed_reference_point(output)
+
+
+
+
         results = self.optimize_acquisition_function(
             self.model,
             X=X,
@@ -220,6 +229,7 @@ class MOBO(Strategy):
             raw_samples=kwargs.get("raw_samples", 2000),
             # mc_samples=kwargs.get("mc_samples", 128),
         )
+
 
         # Convert result to datset
         result = DataSet(
@@ -250,11 +260,12 @@ class MOBO(Strategy):
                         self.input_group_indices[v.name], device=self.device
                     )
                     transform = FilterFeatures(feature_indices=feature_indices)
-                model = SingleTaskGP(X, y[:, [i]], input_transform=transform)
+
+                model = SingleTaskGP(X, y[:, [i]], input_transform=transform) # X: conti vars normalise to (0,1) categ vars keep one-hot; y standarise using mean
                 models.append(model)
             model = ModelListGP(*models)
             mll = SumMarginalLogLikelihood(model.likelihood, model)
-            fit_gpytorch_model(mll, max_retries=20)
+            fit_gpytorch_mll(mll, max_retries=20)
         return model
 
     def optimize_acquisition_function(
@@ -285,21 +296,24 @@ class MOBO(Strategy):
                     new_ds.to_numpy(), device=self.device, dtype=dtype
                 )
 
+
         # Acquisition function
+    
         acq = CategoricalqNEHVI(
             model=model,
-            ref_point=reference_point,
+            ref_point=reference_point, # -1.6, -4.2, every time will slightly change
             domain=self.domain,
             sampler=sampler,
-            X_baseline=X,
+            X_baseline=X, # conti vars normalise to (0,1), categ vars keep one-hot encoding
             prune_baseline=True,
             descriptor_tensors=descriptors_tensors,
         )
 
+
         # Optimize acquisition function
         results, _ = optimize_acqf(
             acq_function=acq,
-            bounds=self._get_input_bounds(),
+            bounds=self._get_input_bounds(),  # all range from 0-1
             num_restarts=num_restarts,
             q=num_experiments,
             raw_samples=raw_samples,
