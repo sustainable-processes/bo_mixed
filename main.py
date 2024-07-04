@@ -8,7 +8,7 @@ import typer
 from summit import *
 
 import wandb
-from benchmark import MixedBenchmark
+from benchmark_1 import MixedBenchmark
 from optimize import MOBO
 from utils import WandbRunner
 
@@ -20,11 +20,11 @@ class StrategyType(Enum):
 
 
 def main(
-    repeats: int = 28,
+    repeats: int = 20,
     max_iterations: int = 20,
     num_initial_experiments: int = 20,
     strategy: StrategyType = "MOBO",
-    noise_level: float = 0.01,
+    noise_level: float = 0.0,
     save_dir: str = "results",
     show_plot: bool = True,
     wandb_tracking: bool = True,
@@ -32,7 +32,6 @@ def main(
     wandb_entity: str = "ceb-sre",
     wandb_artifact_name: str = "mixed_benchmark",
     intialization_data_path: Optional[str] = "initial_design/",
-
 
 
 ):
@@ -50,12 +49,19 @@ def main(
     else:
         runner_cls = Runner
 
-    for i in range(0,repeats):
+    for i in range(1,21):
 
         if intialization_data_path is not None:
+
             df = pd.read_excel(intialization_data_path + f"initial_design_{i}.xlsx",
                                header=None, usecols="A:D", skiprows=[0], nrows=20,
                                names=["equiv", "flowrate", "elec", "solv"])
+
+            # # paper revision - compare initial design
+            # df = pd.read_excel(intialization_data_path + f"InitialDesign_28_re4_{i}.xlsx",
+            #                    header=None, usecols="A:D", skiprows=[0], nrows=28,
+            #                    names=["equiv", "flowrate", "elec", "solv"])
+
             ds = DataSet.from_df(df)
             prev_res = exp.run_experiments(ds)
         else:
@@ -99,7 +105,7 @@ def main(
         fig.savefig(save_dir / f"pareto_plot_repeat_{i}.png",dpi=300)
         if wandb_tracking:
             wandb.log({"pareto_plot": wandb.Image(fig)})
-            
+#
         # Save results
         r.save(save_dir / f"repeat_{i}.json")
 
